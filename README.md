@@ -1,6 +1,6 @@
 # YouTube Clean Settings
 
-A smaller YouTube settings menu. Keep **Subtitles/CC**, **Playback speed**, and **Quality**, and hide the other rows.
+A smaller YouTube settings menu that keeps **Stable volume**, **Voice boost**, and **Ambient mode** off. The main menu shows **Subtitles/CC**, **Playback speed**, and **Quality**.
 
 [![Install with Violentmonkey](.github/install.svg)](https://raw.githubusercontent.com/huyxs2005/youtube-clean-settings/main/youtube-clean-settings.user.js)
 
@@ -19,20 +19,33 @@ If the button shows the script as text instead, copy [this direct script link](h
 - Keeps the three main settings listed above, when the video has them.
 - Shrinks the popup to fit the remaining rows, including the inner menu list.
 - Leaves the options inside Quality, Playback speed, and Subtitles/CC alone.
-- Saves YouTube's DRC (Stable volume) preference as off when the page loads.
+- Turns Voice boost off first, then Stable volume, using YouTube's player controls when available.
+- Turns Ambient mode off through its actual settings switch. Uses checked switches as a fallback for the audio settings too.
+- Rechecks after video changes, when switch states change, and once a second while the tab is visible. If one of the three turns back on, it turns it off again.
+- Keeps the stored Voice boost and Stable volume preferences set to off.
 
-The DRC part changes the stored preference. It doesn't keep checking the player or force the switch off during playback. Hiding a setting also doesn't turn it off.
+Other hidden settings keep their existing values. This version actively enforces OFF for the three settings above; enabling one manually will be undone while the script is running.
 
 ## A couple of things to know
 
-The script matches English setting names, so use YouTube in English. It uses modern CSS, including `:has()`, and needs a browser that supports it. The URL rules include YouTube's desktop, mobile, and youtube-nocookie pages; the menu changes apply where YouTube uses the matching player layout. YouTube Music isn't included.
+Use YouTube in **English** for menu matching. The audio player methods work independently of the labels, but the Ambient mode switch and compact menu use English text. The script uses modern CSS, including `:has()`.
 
-There are no external libraries, analytics, or network requests in the script. It runs on the YouTube addresses listed in its header and writes the DRC preference to that site's local storage.
+YouTube sometimes creates its switches only after Settings has been opened. If needed, the script briefly opens and closes the traditional settings menu after playback is ready, with at most three attempts per video. It leaves an already open menu alone and postpones initialization while you're interacting with the page.
 
-To get all the settings back, disable the script in Violentmonkey and refresh YouTube. That restores the menu; it doesn't undo the stored DRC preference. You can change Stable volume yourself afterward.
+This targets the traditional desktop YouTube player, including matching embedded players. The address rules also include mobile YouTube, but its alternative menus, Shorts-specific controls, and YouTube Music aren't supported by the menu routine. Features that YouTube doesn't expose for a video cannot be switched through the menu.
+
+YouTube's player methods are internal and can change. This is ongoing enforcement, not a guarantee that a feature can never run briefly during loading or before its control becomes available. If YouTube removes or renames the controls, the script may need an update.
+
+There are no external libraries, analytics, or direct network requests in the script. It uses YouTube's own player methods and switches, and writes the two audio preferences to that site's local and session storage. YouTube may reload its audio stream when a preference changes.
+
+To stop enforcement and get all the settings back, disable the script in Violentmonkey and refresh YouTube. Existing off preferences remain saved; you can change the switches yourself afterward.
 
 ## If something breaks
 
 YouTube changes its player from time to time. [Open an issue](https://github.com/huyxs2005/youtube-clean-settings/issues) with your browser, Violentmonkey version, and what happened. A screenshot of the settings menu helps.
 
-Current script version: **2.9**.
+## Version 3.0
+
+Adds active OFF enforcement for Stable volume, Voice boost, and Ambient mode, while retaining the v2.9 compact-menu sizing fix. Existing installations keep the same script name and namespace so this installs as an update.
+
+Automated checks cover player-method values and order, switch fallback, navigation, re-enabling, lazy menus, retries, storage failures, and compact/submenu behavior. Live playback across all YouTube layouts has not been verified. See the [research notes](docs/research.md) for sources and compatibility details.

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         YouTube - Clean Settings + Disable DRC
 // @namespace    youtube-clean-settings
-// @version      2.9
-// @description  Keep only 3 settings, compact menu, disable stored DRC
+// @version      3.0
+// @description  Compact settings menu; keep Stable volume, Voice boost, and Ambient mode off
 // @match        https://www.youtube.com/*
 // @match        https://youtube.com/*
 // @match        https://m.youtube.com/*
@@ -10,7 +10,7 @@
 // @match        https://youtube-nocookie.com/*
 // @run-at       document-idle
 // @grant        none
-
+// @inject-into  page
 // @homepageURL  https://github.com/huyxs2005/youtube-clean-settings
 // @supportURL   https://github.com/huyxs2005/youtube-clean-settings/issues
 // @downloadURL  https://raw.githubusercontent.com/huyxs2005/youtube-clean-settings/main/youtube-clean-settings.user.js
@@ -27,7 +27,7 @@ const KEEP = new Set([
 
    const HIDDEN = 'vm-hide-yt-setting';
    const COMPACT = 'vm-compact-settings';
-   const STYLE_ID = 'vm-settings-style-29';
+   const STYLE_ID = 'vm-settings-style-30';
 
    function normalize(text) {
      return (text || '')
@@ -38,7 +38,7 @@ const KEEP = new Set([
 
    // Remove legacy modifications left by older versions
    document.querySelectorAll(
-     '#vm-clean-settings-style'
+     '#vm-clean-settings-style, #vm-settings-style-29'
    ).forEach(el => el.remove());
 
    // Styling
@@ -185,6 +185,7 @@ const KEEP = new Set([
    }
 
    function update() {
+     enforceDisabledSettings();
      for (const menu of document.querySelectorAll(
        '.ytp-settings-menu'
      )) {
@@ -206,25 +207,200 @@ const KEEP = new Set([
      });
    }
 
-   // Disable stored DRC preference
-   function disableDRC() {
-     try {
-       const now = Date.now();
+   // YouTube's current player uses different OFF values for these preferences.
+   const PREFERENCES = [
+     { key: 'yt-player-voice-boost', label: 'voice boost', off: 1,
+       get: 'getVoiceBoostUserPreference', set: 'setVoiceBoostUserPreference' },
+     { key: 'yt-player-drc-pref', label: 'stable volume', off: 0,
+       get: 'getDrcUserPreference', set: 'setDrcUserPreference' }
+   ];
+   const FORCE_OFF_LABELS = [
+     'voice boost', 'stable volume', 'ambient mode', 'cinematic lighting'
+   ];
+   const lastToggle = new WeakMap();
+   const lastAPICall = new WeakMap();
+   const menuInitialization = new WeakMap();
+   let lastInteraction = 0;
+   let navigating = false;
+   let enforcing = false;
+   let enforcementTimer;
 
-       localStorage.setItem(
-         'yt-player-drc-pref',
-         JSON.stringify({
-           data: '0',
-           creation: now,
-           expiration: now + 31536000000
-         })
-       );
-     } catch {}
+   // Keep the original wrapped storage format. Avoid rewriting healthy records.
+   function storeOffPreferences() {
+     for (const name of ['localStorage', 'sessionStorage']) {
+       try {
+         const storage = window[name];
+         for (const preference of PREFERENCES) {
+           let record;
+           try { record = JSON.parse(storage.getItem(preference.key)); } catch {}
+           const now = Date.now();
+           if (record && String(record.data) === String(preference.off) &&
+               Number(record.expiration) > now && Number(record.creation) <= now) {
+             continue;
+           }
+           storage.setItem(preference.key, JSON.stringify({
+             data: String(preference.off),
+             creation: now,
+             expiration: now + 31536000000
+           }));
+         }
+       } catch {
+         // Storage can be unavailable in private windows or embedded players.
+       }
+     }
    }
+
+   function forcePlayerPreferences(player) {
+     const managed = new Set();
+     let calls = lastAPICall.get(player);
+     if (!calls) lastAPICall.set(player, calls = new Map());
+     // Voice boost first: it can otherwise prevent Stable volume from changing.
+     for (const preference of PREFERENCES) {
+       try {
+         if (typeof player[preference.set] !== 'function') continue;
+         if (typeof player[preference.get] === 'function' &&
+             Number(player[preference.get]()) === preference.off) {
+           managed.add(preference.label);
+           continue;
+         }
+         const now = Date.now();
+         if (now - (calls.get(preference.key) ?? -Infinity) < 1000) {
+           managed.add(preference.label);
+           continue;
+         }
+         calls.set(preference.key, now);
+         player[preference.set](preference.off);
+         managed.add(preference.label);
+       } catch {
+         // The methods may exist before their backing player modules are ready.
+       }
+     }
+     return managed;
+   }
+
+   function findSettingRows(player) {
+     return Array.from(player.querySelectorAll(
+       '.ytp-settings-menu .ytp-menuitem'
+     ));
+   }
+
+   function settingLabel(row) {
+     if (row.classList.contains('ytp-drc-menu-item')) return 'stable volume';
+     return normalize(row.querySelector('.ytp-menuitem-label')?.textContent);
+   }
+
+   function forceSettingSwitches(player, managed = new Set()) {
+     // Find by label, not by sibling position: YouTube can reorder the rows.
+     for (const label of FORCE_OFF_LABELS) {
+       // A just-updated API can leave a stale checked row briefly. Do not toggle it on.
+       if (managed.has(label)) continue;
+       const row = findSettingRows(player).find(item => settingLabel(item) === label);
+       if (!row) continue;
+       const toggle = row.hasAttribute('aria-checked') ? row :
+         row.querySelector('[role="switch"][aria-checked], ' +
+                           '[role="menuitemcheckbox"][aria-checked]');
+       if (!toggle || toggle.getAttribute('aria-checked') !== 'true') continue;
+       if (row.getAttribute('aria-disabled') === 'true' ||
+           toggle.getAttribute('aria-disabled') === 'true' || toggle.disabled) continue;
+       const now = Date.now();
+       if (now - (lastToggle.get(toggle) ?? -Infinity) < 1000) continue;
+       lastToggle.set(toggle, now);
+       toggle.click();
+       // Let YouTube update the remaining switches before inspecting them again.
+       setTimeout(scheduleUpdate, 100);
+       return;
+     }
+   }
+
+   function initializeSettingsMenu(player) {
+     // This is the traditional desktop player. Do not click unrelated mobile menus.
+     const button = player.querySelector('.ytp-settings-button');
+     const video = player.querySelector('video');
+     if (!button || button.disabled || !video || video.readyState === 0) return;
+     if (button.getAttribute('aria-expanded') !== 'false') return;
+     if (document.hidden || navigating || Date.now() - lastInteraction < 2000) return;
+     if (player.classList.contains('ad-showing')) return;
+
+     let videoId = '';
+     try { videoId = player.getVideoData?.()?.video_id || ''; } catch {}
+     const key = location.pathname + location.search + '|' + videoId;
+     let state = menuInitialization.get(player);
+     if (!state || state.key !== key) {
+       state = { key, attempts: 0, nextAttempt: 0, ready: false };
+       menuInitialization.set(player, state);
+     }
+     if (state.ready || state.attempts >= 3 || Date.now() < state.nextAttempt) return;
+     // Once the main list is present, its actual switches are enough to enforce OFF.
+     if (findSettingRows(player).some(row => settingLabel(row) === 'quality')) {
+       state.ready = true;
+       return;
+     }
+     state.attempts++;
+     state.nextAttempt = Date.now() + 2000;
+     const focus = document.activeElement;
+     try {
+       button.click();
+     } finally {
+       // Close only the menu we opened. Both clicks are synchronous.
+       if (button.isConnected && button.getAttribute('aria-expanded') === 'true') {
+         button.click();
+       }
+       // Synthetic clicks should not leave keyboard focus on the settings button.
+       if (focus?.isConnected && document.activeElement === button && focus !== button) {
+         focus.focus({ preventScroll: true });
+       }
+     }
+     setTimeout(scheduleUpdate, 100);
+   }
+
+   function enforceDisabledSettings() {
+     if (enforcing || navigating) return;
+     enforcing = true;
+     try {
+       storeOffPreferences();
+       for (const player of document.querySelectorAll('.html5-video-player')) {
+         if (player.classList.contains('ad-showing')) continue;
+         const managed = forcePlayerPreferences(player);
+         initializeSettingsMenu(player);
+         forceSettingSwitches(player, managed);
+       }
+     } finally {
+       enforcing = false;
+     }
+   }
+
+   function installEnforcement() {
+     // No blanket interception of YouTube's storage or history methods is needed.
+     for (const eventName of ['pointerdown', 'keydown']) {
+       document.addEventListener(eventName, event => {
+         if (event.isTrusted) lastInteraction = Date.now();
+       }, true);
+     }
+     document.addEventListener('yt-navigate-start', () => { navigating = true; });
+     document.addEventListener('yt-navigate-finish', () => {
+       navigating = false;
+       scheduleUpdate();
+     });
+     for (const eventName of [
+       'yt-player-updated', 'yt-page-data-updated', 'loadedmetadata',
+       'playing', 'visibilitychange'
+     ]) document.addEventListener(eventName, scheduleUpdate, true);
+     window.addEventListener('pageshow', scheduleUpdate);
+     window.addEventListener('focus', scheduleUpdate);
+     // Catch preference changes that do not produce a DOM or navigation event.
+     enforcementTimer = setInterval(() => {
+       if (!document.hidden) scheduleUpdate();
+     }, 1000);
+     window.addEventListener('pagehide', event => {
+       if (!event.persisted) clearInterval(enforcementTimer);
+     });
+   }
+
 
    function initialize() {
      installCSS();
-     disableDRC();
+     storeOffPreferences();
+     installEnforcement();
      scheduleUpdate();
 
      const observer = new MutationObserver(
@@ -234,7 +410,9 @@ const KEEP = new Set([
      observer.observe(document.documentElement, {
        childList: true,
        subtree: true,
-       characterData: true
+       characterData: true,
+       attributes: true,
+       attributeFilter: ['aria-checked', 'aria-disabled', 'aria-expanded']
      });
 
      document.addEventListener(
