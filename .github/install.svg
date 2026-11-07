@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="250" height="44" viewBox="0 0 250 44" role="img" aria-label="Install with Violentmonkey">
+  <rect width="250" height="44" rx="8" fill="#238636"/>
+  <path d="M23 12v14m-5-5 5 5 5-5m-13 9h16" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="43" y="27" fill="#fff" font-family="Arial, sans-serif" font-size="15" font-weight="600">Install with Violentmonkey</text>
+</svg>
