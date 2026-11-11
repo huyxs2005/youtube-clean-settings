@@ -30,7 +30,7 @@ Other hidden settings keep their existing values. This version actively enforces
 
 Use YouTube in **English** for menu matching. The audio player methods work independently of the labels, but the Ambient mode switch and compact menu use English text. The script uses modern CSS, including `:has()`.
 
-YouTube sometimes creates its switches only after Settings has been opened. If needed, the script briefly opens and closes the traditional settings menu after playback is ready, with at most three attempts per video. It leaves an already open menu alone and postpones initialization while you're interacting with the page.
+YouTube sometimes creates its switches only after Settings has been opened. If needed, the script opens the traditional settings menu invisibly after playback is ready, waits up to 1.5 seconds for its rows, switches Ambient mode off, and closes it again, with at most three attempts per video. The control bar may still appear briefly. It leaves an already open menu alone and postpones initialization while you're interacting with the page.
 
 This targets the traditional desktop YouTube player, including matching embedded players. The address rules also include mobile YouTube, but its alternative menus, Shorts-specific controls, and YouTube Music aren't supported by the menu routine. Features that YouTube doesn't expose for a video cannot be switched through the menu.
 
@@ -43,6 +43,10 @@ To stop enforcement and get all the settings back, disable the script in Violent
 ## If something breaks
 
 YouTube changes its player from time to time. [Open an issue](https://github.com/huyxs2005/youtube-clean-settings/issues) with your browser, Violentmonkey version, and what happened. A screenshot of the settings menu helps.
+
+## Version 3.1
+
+Fixes the settings menu popping up (and sometimes staying open) when a video starts. The menu opened by the script is now hidden while it's in use, and closing checks whether the menu is actually shown instead of relying on `aria-expanded`, which YouTube updates after the click. Not yet verified on live YouTube.
 
 ## Version 3.0
 
