@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube - Clean Settings + Disable DRC
 // @namespace    youtube-clean-settings
-// @version      3.1
+// @version      3.3
 // @description  Compact settings menu; keep Stable volume, Voice boost, and Ambient mode off
 // @match        https://www.youtube.com/*
 // @match        https://youtube.com/*
@@ -26,9 +26,8 @@
   ]);
 
   const HIDDEN = 'vm-hide-yt-setting';
-  const COMPACT = 'vm-compact-settings';
   const SILENT = 'vm-silent-settings-init';
-  const STYLE_ID = 'vm-settings-style-31';
+  const STYLE_ID = 'vm-settings-style-33';
 
   function normalize(text) {
     return (text || '')
@@ -39,7 +38,8 @@
 
   // Remove legacy modifications left by older versions
   document.querySelectorAll(
-    '#vm-clean-settings-style, #vm-settings-style-29, #vm-settings-style-30'
+    '#vm-clean-settings-style, #vm-settings-style-29, #vm-settings-style-30, ' +
+    '#vm-settings-style-31, #vm-settings-style-32'
   ).forEach(el => el.remove());
 
   // Styling
@@ -49,34 +49,50 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
 
+    const onlyPanel = '.ytp-panel:nth-child(1 of .ytp-panel):nth-last-child(1 of .ytp-panel)' +
+      ':not(.ytp-panel-animate-back, .ytp-panel-animate-forward)';
+    const mainList = '.ytp-panel-menu:has(> .${HIDDEN})';
+    // YouTube attaches both panels during navigation, including keyboard navigation.
+    // Leave popup sizing to YouTube while both panels are attached.
+    const compactPopup = `.ytp-settings-menu:has(` +
+      `> .ytp-popup-content > ${onlyPanel} > .ytp-panel-menu > .${HIDDEN}, ` +
+      `> ${onlyPanel} > .ytp-panel-menu > .${HIDDEN})`;
+    const submenu = `${onlyPanel}:has(> .ytp-panel-header)`;
+    const openSubmenu = `.ytp-settings-menu:has(> .ytp-popup-content > ${submenu}, > ${submenu})`;
+
     style.textContent = `
       .ytp-settings-menu .${HIDDEN} {
         display: none !important;
       }
 
-      .ytp-settings-menu.${COMPACT} {
+      ${compactPopup},
+      ${compactPopup} .ytp-panel:has(> ${mainList}) {
         height: var(--vm-compact-height) !important;
       }
 
-      .ytp-settings-menu.${COMPACT}
-      .ytp-panel:has(> .ytp-panel-menu > .${HIDDEN}) {
-        height: var(--vm-compact-height) !important;
+      /* An absolutely positioned submenu contributes no height to the popup. */
+      ${openSubmenu} {
+        height: auto !important;
+        max-height: calc(100% - 72px);
+        overflow-y: auto;
       }
 
-      /* Normal row sizing in the main menu only */
-      .ytp-settings-menu
-      .ytp-panel-menu:has(> .${HIDDEN})
-      > .ytp-menuitem:not(.${HIDDEN}) {
+      ${openSubmenu} > .ytp-popup-content > ${submenu},
+      ${openSubmenu} > ${submenu} {
+        position: relative !important;
+        inset: auto !important;
+        height: auto !important;
+      }
+
+      /* Let YouTube measure the filtered list, including when animating Back. */
+      .ytp-settings-menu ${mainList} {
+        height: auto !important;
+      }
+
+      .ytp-settings-menu ${mainList} > .ytp-menuitem:not(.${HIDDEN}) {
         height: 40px !important;
         min-height: 40px !important;
         box-sizing: border-box !important;
-      }
-
-      /* Resize the internal menu list too */
-      .ytp-settings-menu.${COMPACT}
-      .ytp-panel-menu:has(> .${HIDDEN}) {
-        height: var(--vm-compact-height) !important;
-        max-height: var(--vm-compact-height) !important;
       }
 
       /* Menu opened by the script itself: keep it invisible */
@@ -116,55 +132,24 @@
     }
   }
 
-  // Resize popup when its main menu is shown
+  // Update the main menu's CSS size without touching YouTube's inline height.
   function resizeMenu(menu) {
-    const lists = Array.from(menu.querySelectorAll('.ytp-panel-menu'));
+    const mainList = menu.querySelector(`.ytp-panel-menu:has(> .${HIDDEN})`);
+    if (!mainList) return;
 
-    const mainList = lists.find(list =>
-      Array.from(list.children).some(el => el.classList.contains(HIDDEN))
+    const visibleRows = mainList.querySelectorAll(
+      `:scope > .ytp-menuitem:not(.${HIDDEN})`
     );
-
-    if (!mainList) {
-      menu.classList.remove(COMPACT);
-      return;
-    }
-
-    const panel = mainList.closest('.ytp-panel');
-
-    // Don't compact when inside a submenu.
-    const header = panel?.querySelector('.ytp-panel-header');
-
-    const submenuOpen = header &&
-      getComputedStyle(header).display !== 'none' &&
-      getComputedStyle(header).visibility !== 'hidden' &&
-      header.getBoundingClientRect().height > 0;
-
-    if (submenuOpen) {
-      menu.classList.remove(COMPACT);
-      return;
-    }
-
-    const visibleRows = Array.from(mainList.children).filter(el =>
-      el.classList.contains('ytp-menuitem') &&
-      !el.classList.contains(HIDDEN)
-    );
-
-    if (!visibleRows.length) {
-      menu.classList.remove(COMPACT);
-      return;
-    }
 
     const listStyle = getComputedStyle(mainList);
-
     const padding =
       (parseFloat(listStyle.paddingTop) || 0) +
       (parseFloat(listStyle.paddingBottom) || 0);
 
-    // Rows at 40px + original menu padding
-    const height = Math.ceil(visibleRows.length * 40 + padding);
-
-    menu.style.setProperty('--vm-compact-height', `${height}px`);
-    menu.classList.add(COMPACT);
+    const height = `${Math.ceil(visibleRows.length * 40 + padding)}px`;
+    if (menu.style.getPropertyValue('--vm-compact-height') !== height) {
+      menu.style.setProperty('--vm-compact-height', height);
+    }
   }
 
   function update() {
@@ -204,7 +189,7 @@
   let lastInteraction = 0;
   let navigating = false;
   let enforcing = false;
-  let silentInit = false;
+  let cancelSilentInit = null;
   let enforcementTimer;
 
   // Keep the original wrapped storage format. Avoid rewriting healthy records.
@@ -293,7 +278,7 @@
   }
 
   function settingsMenuOpen(player, button) {
-    if (button.getAttribute('aria-expanded') === 'true') return true;
+    if (button?.getAttribute('aria-expanded') === 'true') return true;
     const menu = player.querySelector('.ytp-settings-menu');
     return !!menu && getComputedStyle(menu).display !== 'none';
   }
@@ -301,7 +286,7 @@
   // The settings rows only exist after the menu has been opened once.
   // Open it invisibly, switch Ambient mode off, then close it again.
   function initializeSettingsMenu(player) {
-    if (silentInit) return;
+    if (cancelSilentInit) return;
     // This is the traditional desktop player. Do not click unrelated mobile menus.
     const button = player.querySelector('.ytp-settings-button');
     const video = player.querySelector('video');
@@ -327,28 +312,42 @@
 
     state.attempts++;
     state.nextAttempt = Date.now() + 2000;
-    silentInit = true;
     const focus = document.activeElement;
     const startedAt = Date.now();
+    let finished = false;
+
+    const reveal = () => {
+      player.classList.remove(SILENT);
+      cancelSilentInit = null;
+      scheduleUpdate();
+    };
+
+    const cancel = () => {
+      finished = true;
+      reveal();
+    };
+
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      if (button.isConnected && settingsMenuOpen(player, button)) button.click();
+      // Reveal only after YouTube has had a frame to hide the menu.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (cancelSilentInit !== cancel) return;
+        reveal();
+        if (focus?.isConnected && document.activeElement === button && focus !== button) {
+          focus.focus({ preventScroll: true });
+        }
+      }));
+    };
+
+    cancelSilentInit = cancel;
 
     player.classList.add(SILENT);
     button.click();
 
-    const finish = () => {
-      // Close based on what is actually shown, not on a possibly stale aria-expanded.
-      if (button.isConnected && settingsMenuOpen(player, button)) button.click();
-      // Reveal only after YouTube has had a frame to hide the menu.
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        player.classList.remove(SILENT);
-        silentInit = false;
-        if (focus?.isConnected && document.activeElement === button && focus !== button) {
-          focus.focus({ preventScroll: true });
-        }
-        scheduleUpdate();
-      }));
-    };
-
     const step = () => {
+      if (finished) return;
       if (!button.isConnected) { finish(); return; }
       if (findSettingRows(player).some(row => settingLabel(row) === 'quality')) {
         state.ready = true;
@@ -356,8 +355,8 @@
         setTimeout(finish, 150); // let the Ambient toggle apply before closing
         return;
       }
-      // User did something, or the rows never came: give up quietly.
-      if (lastInteraction > startedAt || Date.now() - startedAt > 1500) {
+      // The player never built its settings rows.
+      if (Date.now() - startedAt > 1500) {
         finish();
         return;
       }
@@ -373,9 +372,12 @@
       storeOffPreferences();
       for (const player of document.querySelectorAll('.html5-video-player')) {
         if (player.classList.contains('ad-showing')) continue;
+        const button = player.querySelector('.ytp-settings-button');
+        // Switch clicks and preference changes can rebuild the active panel.
+        if (settingsMenuOpen(player, button)) continue;
         const managed = forcePlayerPreferences(player);
-        initializeSettingsMenu(player);
         forceSettingSwitches(player, managed);
+        initializeSettingsMenu(player);
       }
     } finally {
       enforcing = false;
@@ -383,12 +385,17 @@
   }
 
   function installEnforcement() {
-    for (const eventName of ['pointerdown', 'keydown']) {
+    for (const eventName of ['pointerdown', 'keydown', 'click']) {
       document.addEventListener(eventName, event => {
-        if (event.isTrusted) lastInteraction = Date.now();
+        if (!event.isTrusted) return;
+        lastInteraction = Date.now();
+        cancelSilentInit?.();
       }, true);
     }
-    document.addEventListener('yt-navigate-start', () => { navigating = true; });
+    document.addEventListener('yt-navigate-start', () => {
+      navigating = true;
+      cancelSilentInit?.();
+    });
     document.addEventListener('yt-navigate-finish', () => {
       navigating = false;
       scheduleUpdate();
