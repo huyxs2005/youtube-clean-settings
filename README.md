@@ -10,15 +10,14 @@ A smaller YouTube settings menu that keeps **Stable volume**, **Voice boost**, a
 2. Click the green **Install with Violentmonkey** button above.
 3. Violentmonkey will open an installation screen. Click **Install**, then refresh YouTube.
 
-Already using an older copy? Disable or remove it first. Only one copy of this script should be enabled. If you're testing the full original-settings version, disable that one too.
+Already using this script? Click the same install button to update your existing copy, then refresh YouTube. Keep only one copy enabled. If you're testing the full original-settings version, disable it before using this script.
 
 If the button shows the script as text instead, copy [this direct script link](https://raw.githubusercontent.com/huyxs2005/youtube-clean-settings/main/youtube-clean-settings.user.js) and use Violentmonkey's **Install from URL** option.
 
 ## What it changes
 
 - Keeps the three main settings listed above, when the video has them.
-- Shrinks the popup to fit the remaining rows, including the inner menu list.
-- Leaves the options inside Quality, Playback speed, and Subtitles/CC alone.
+- Keeps the main popup compact and sizes each submenu to its own options. On shorter players, scroll to reach options that don't fit.
 - Turns Voice boost off first, then Stable volume, using YouTube's player controls when available.
 - Turns Ambient mode off through its actual settings switch. Uses checked switches as a fallback for the audio settings too.
 - Rechecks after video changes, when switch states change, and once a second while the tab is visible. If one of the three turns back on, it turns it off again.
@@ -43,6 +42,12 @@ To stop enforcement and get all the settings back, disable the script in Violent
 ## If something breaks
 
 YouTube changes its player from time to time. [Open an issue](https://github.com/huyxs2005/youtube-clean-settings/issues) with your browser, Violentmonkey version, and what happened. A screenshot of the settings menu helps.
+
+## Version 3.3
+
+Fixes the clipped **Settings → Quality** menu. The popup expands to fit the resolution options while the main settings menu stays compact. The fix was verified on YouTube with Violentmonkey.
+
+Avoids changing player preferences while Settings is open. Interacting with the player also cancels any pending automatic close from background initialization.
 
 ## Version 3.1
 
